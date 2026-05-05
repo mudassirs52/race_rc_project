@@ -6,14 +6,14 @@ import joblib
 from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import LogisticRegression
 
-# ─── 1. LOAD DATA ───────────────────────────────────────────
+#1. LOAD DATA
 def load_data():
     train_df = pd.read_csv('../data/raw/train.csv')
     val_df = pd.read_csv('../data/raw/val.csv')
     test_df = pd.read_csv('../data/raw/test.csv')
     return train_df, val_df, test_df
 
-# ─── 2. PARSE OPTIONS ───────────────────────────────────────
+#2. PARSE OPTIONS 
 def parse_options(df):
     import re
     df = df.copy()
@@ -30,7 +30,7 @@ def parse_options(df):
     df['D'] = df['options_parsed'].apply(lambda x: x[3])
     return df
 
-# ─── 3. CLEAN TEXT ──────────────────────────────────────────
+#3. CLEAN TEXT
 def clean_text(text):
     import re
     text = str(text).lower()
@@ -38,7 +38,7 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# ─── 4. FEATURE ENGINEERING ─────────────────────────────────
+#4. FEATURE ENGINEERING
 def extract_features(df):
     df = df.copy()
     df['article_clean'] = df['article'].apply(clean_text)
@@ -54,7 +54,7 @@ def extract_features(df):
 
     return df
 
-# ─── 5. ONE HOT ENCODING ────────────────────────────────────
+#5. ONE HOT ENCODING
 def build_ohe_features(df, vocab=None, max_features=5000):
     from collections import Counter
     import re
@@ -84,13 +84,13 @@ def build_ohe_features(df, vocab=None, max_features=5000):
 
     return X, vocab
 
-# ─── 6. LABEL ENCODING ──────────────────────────────────────
+# 6. LABEL ENCODING
 def encode_labels(df):
     le = LabelEncoder()
     y = le.fit_transform(df['answer'])
     return y, le
 
-# ─── 7. SAVE PROCESSED DATA ─────────────────────────────────
+#7. SAVE PROCESSED DATA
 def save_processed(X_train, y_train, X_val, y_val, X_test, y_test, vocab, le):
     os.makedirs('../data/processed', exist_ok=True)
     np.save('../data/processed/X_train.npy', X_train)
@@ -103,7 +103,7 @@ def save_processed(X_train, y_train, X_val, y_val, X_test, y_test, vocab, le):
     joblib.dump(le, '../data/processed/label_encoder.pkl')
     print("Saved!")
 
-# ─── 8. MAIN ────────────────────────────────────────────────
+#8. MAIN
 if __name__ == '__main__':
     print("Loading data...")
     train_df, val_df, test_df = load_data()

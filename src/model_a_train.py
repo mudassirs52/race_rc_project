@@ -7,7 +7,7 @@ from sklearn.metrics import accuracy_score, f1_score, classification_report, con
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# ─── 1. LOAD PROCESSED DATA ─────────────────────────────────
+#1. LOAD PROCESSED DATA
 def load_processed():
     X_train = np.load('../data/processed/X_train.npy')
     y_train = np.load('../data/processed/y_train.npy')
@@ -15,21 +15,21 @@ def load_processed():
     y_val = np.load('../data/processed/y_val.npy')
     return X_train, y_train, X_val, y_val
 
-# ─── 2. TRAIN LOGISTIC REGRESSION ───────────────────────────
+#2. TRAIN LOGISTIC REGRESSION
 def train_logistic_regression(X_train, y_train):
     print("Training Logistic Regression...")
     lr = LogisticRegression(max_iter=1000, random_state=42, multi_class='multinomial')
     lr.fit(X_train, y_train)
     return lr
 
-# ─── 3. TRAIN SVM ───────────────────────────────────────────
+#3. TRAIN SVM
 def train_svm(X_train, y_train):
     print("Training SVM...")
     svm = SVC(kernel='linear', probability=True, random_state=42)
     svm.fit(X_train, y_train)
     return svm
 
-# ─── 4. EVALUATE MODEL ──────────────────────────────────────
+#EVALUATE MODEl
 def evaluate_model(model, X_val, y_val, model_name):
     y_pred = model.predict(X_val)
     acc = accuracy_score(y_val, y_pred)
@@ -43,7 +43,7 @@ def evaluate_model(model, X_val, y_val, model_name):
     
     return acc, f1, y_pred
 
-# ─── 5. PLOT CONFUSION MATRIX ───────────────────────────────
+#5PLOT CONFUSION MATRIX
 def plot_confusion_matrix(y_val, y_pred, model_name):
     cm = confusion_matrix(y_val, y_pred)
     plt.figure(figsize=(6, 5))
@@ -58,14 +58,14 @@ def plot_confusion_matrix(y_val, y_pred, model_name):
     plt.show()
     print(f"Saved confusion matrix!")
 
-# ─── 6. SAVE MODEL ──────────────────────────────────────────
+#6. SAVE MODEL
 def save_model(model, model_name):
     os.makedirs('../models/model_a/traditional', exist_ok=True)
     path = f'../models/model_a/traditional/{model_name}.pkl'
     joblib.dump(model, path)
     print(f"Saved {model_name} to {path}")
 
-# ─── 7. MAIN ────────────────────────────────────────────────
+#7. MAIN 
 if __name__ == '__main__':
     print("Loading processed data...")
     X_train, y_train, X_val, y_val = load_processed()
