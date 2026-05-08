@@ -1,44 +1,25 @@
 import pandas as pd
 import numpy as np
-import ast
+import re
 import os
 import joblib
 from sklearn.preprocessing import LabelEncoder
-from sklearn.linear_model import LogisticRegression
 
 #1. LOAD DATA
 def load_data():
     train_df = pd.read_csv('../data/raw/train.csv')
-    val_df = pd.read_csv('../data/raw/val.csv')
+    val_df = pd.read_csv('../data/raw/dev.csv')
     test_df = pd.read_csv('../data/raw/test.csv')
     return train_df, val_df, test_df
 
-#2. PARSE OPTIONS 
-def parse_options(df):
-    import re
-    df = df.copy()
-    
-    def parse_option(opt_str):
-        items = re.findall(r"'(.*?)'", str(opt_str))
-        return items
-    
-    df['options_parsed'] = df['options'].apply(parse_option)
-    df = df[df['options_parsed'].apply(lambda x: len(x) == 4)].reset_index(drop=True)
-    df['A'] = df['options_parsed'].apply(lambda x: x[0])
-    df['B'] = df['options_parsed'].apply(lambda x: x[1])
-    df['C'] = df['options_parsed'].apply(lambda x: x[2])
-    df['D'] = df['options_parsed'].apply(lambda x: x[3])
-    return df
-
-#3. CLEAN TEXT
+#2. CLEAN TEXT
 def clean_text(text):
-    import re
     text = str(text).lower()
     text = re.sub(r'[^a-z0-9\s]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-#4. FEATURE ENGINEERING
+#3. EXTRACT FEATURES
 def extract_features(df):
     df = df.copy()
     df['article_clean'] = df['article'].apply(clean_text)
@@ -47,17 +28,13 @@ def extract_features(df):
     df['B_clean'] = df['B'].apply(clean_text)
     df['C_clean'] = df['C'].apply(clean_text)
     df['D_clean'] = df['D'].apply(clean_text)
-
     df['article_length'] = df['article'].apply(lambda x: len(str(x).split()))
     df['question_length'] = df['question'].apply(lambda x: len(str(x).split()))
-    df['level'] = df['example_id'].apply(lambda x: 1 if 'high' in str(x) else 0)
-
     return df
 
-#5. ONE HOT ENCODING
-def build_ohe_features(df, vocab=None, max_features=5000):
+#4. ONE HOT ENCODING
+def build_ohe_features(df, vocab=None, max_features=500):
     from collections import Counter
-    import re
 
     def tokenize(text):
         return re.findall(r'\b[a-z]+\b', str(text).lower())
@@ -81,16 +58,18 @@ def build_ohe_features(df, vocab=None, max_features=5000):
 
     combined = (df['article_clean'] + ' ' + df['question_clean']).tolist()
     X = np.array([text_to_ohe(t) for t in combined])
-
     return X, vocab
 
-# 6. LABEL ENCODING
-def encode_labels(df):
-    le = LabelEncoder()
-    y = le.fit_transform(df['answer'])
+#5. ENCODE LABELS
+def encode_labels(df, le=None):
+    if le is None:
+        le = LabelEncoder()
+        y = le.fit_transform(df['answer'])
+    else:
+        y = le.transform(df['answer'])
     return y, le
 
-#7. SAVE PROCESSED DATA
+#6. SAVE PROCESSED DATA
 def save_processed(X_train, y_train, X_val, y_val, X_test, y_test, vocab, le):
     os.makedirs('../data/processed', exist_ok=True)
     np.save('../data/processed/X_train.npy', X_train)
@@ -103,24 +82,17 @@ def save_processed(X_train, y_train, X_val, y_val, X_test, y_test, vocab, le):
     joblib.dump(le, '../data/processed/label_encoder.pkl')
     print("Saved!")
 
-#8. MAIN
+#7. MAIN
 if __name__ == '__main__':
     print("Loading data...")
     train_df, val_df, test_df = load_data()
-
-    print("Parsing options...")
-    train_df = parse_options(train_df)
-    val_df = parse_options(val_df)
-    test_df = parse_options(test_df)
 
     print("Extracting features...")
     train_df = extract_features(train_df)
     val_df = extract_features(val_df)
     test_df = extract_features(test_df)
 
-    print(f"Train size after parsing: {len(train_df)}")
-    print(f"Val size after parsing: {len(val_df)}")
-    print(f"Test size after parsing: {len(test_df)}")
+    print(f"Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
 
     print("Building OHE features...")
     X_train, vocab = build_ohe_features(train_df, max_features=500)
@@ -128,10 +100,9 @@ if __name__ == '__main__':
     X_test, _ = build_ohe_features(test_df, vocab=vocab)
 
     print("Encoding labels...")
-    le = LabelEncoder()
-    y_train = le.fit_transform(train_df['answer'])
-    y_val = le.transform(val_df['answer'])
-    y_test = le.transform(test_df['answer'])
+    y_train, le = encode_labels(train_df)
+    y_val, _ = encode_labels(val_df, le)
+    y_test, _ = encode_labels(test_df, le)
 
     print("Shapes:")
     print("X_train:", X_train.shape)
