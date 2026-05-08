@@ -68,7 +68,7 @@ def evaluate_model_a(X_test, ans_test, le, models,
         if hasattr(model, 'predict_proba'):
             probs = model.predict_proba(X_test)[:, 1]
         else:
-            probs = model.decision_function(X_test)
+            probs = getattr(model, 'decision_function', model.predict)(X_test)
         
         probs = probs.reshape(-1, 4)
         y_pred = np.argmax(probs, axis=1)
