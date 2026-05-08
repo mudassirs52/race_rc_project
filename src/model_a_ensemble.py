@@ -40,9 +40,9 @@ def load_data():
                else np.load(os.path.join(DATA_DIR, f'X_{tag}.npy'))
     X_tr = load_X('train'); X_va = load_X('val')
     y_tr = np.load(os.path.join(DATA_DIR, 'y_train.npy'))
-    y_va = np.load(os.path.join(DATA_DIR, 'y_val.npy'))
+    ans_va = np.load(os.path.join(DATA_DIR, 'ans_val.npy'))
     le   = joblib.load(os.path.join(DATA_DIR, 'label_encoder.pkl'))
-    return X_tr, y_tr, X_va, y_va, le
+    return X_tr, y_tr, X_va, ans_va, le
 
 
 def get_base_models():
@@ -51,7 +51,7 @@ def get_base_models():
     defs = {
         "Logistic_Regression": LogisticRegression(
             max_iter=2000, C=1.0, solver='lbfgs',
-            multi_class='multinomial', class_weight='balanced',
+            class_weight='balanced',
             random_state=42, n_jobs=-1),
         "Random_Forest": RandomForestClassifier(
             n_estimators=200, max_depth=20, class_weight='balanced',
@@ -83,17 +83,24 @@ def train_or_load(name, model, X_tr, y_tr):
     return model
 
 
-def evaluate(model, X_va, y_va, le, name):
-    y_pred = model.predict(X_va)
-    acc = accuracy_score(y_va, y_pred)
-    f1  = f1_score(y_va, y_pred, average='macro', zero_division=0)
+def evaluate(model, X_va, ans_va, le, name):
+    if hasattr(model, 'predict_proba'):
+        probs = model.predict_proba(X_va)[:, 1]
+    else:
+        probs = model.decision_function(X_val)
+        
+    probs = probs.reshape(-1, 4)
+    y_pred_ans = np.argmax(probs, axis=1)
+
+    acc = accuracy_score(ans_va, y_pred_ans)
+    f1  = f1_score(ans_va, y_pred_ans, average='macro', zero_division=0)
     print(f"\n── {name} ──")
     print(f"  Accuracy : {acc:.4f}  |  Macro F1 : {f1:.4f}")
-    print(classification_report(y_va, y_pred, target_names=le.classes_, zero_division=0))
+    print(classification_report(ans_va, y_pred_ans, target_names=le.classes_, zero_division=0))
 
     # Confusion matrix
     os.makedirs(os.path.join(OUT_DIR,'plots'), exist_ok=True)
-    cm = confusion_matrix(y_va, y_pred)
+    cm = confusion_matrix(ans_va, y_pred_ans)
     plt.figure(figsize=(6,5))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Greens',
                 xticklabels=le.classes_, yticklabels=le.classes_)
@@ -102,7 +109,7 @@ def evaluate(model, X_va, y_va, le, name):
     plt.savefig(os.path.join(OUT_DIR, 'plots',
                              f'{name.replace(" ","_")}_cm.png'), dpi=150)
     plt.close()
-    return {"accuracy": round(acc,4), "macro_f1": round(f1,4)}, y_pred
+    return {"accuracy": round(acc,4), "macro_f1": round(f1,4)}, y_pred_ans
 
 
 def plot_ensemble_comparison(all_results):
@@ -135,7 +142,7 @@ if __name__ == '__main__':
     print("  Model A — Ensemble Methods")
     print("="*60)
 
-    X_tr, y_tr, X_va, y_va, le = load_data()
+    X_tr, y_tr, X_va, ans_va, le = load_data()
     base_models = get_base_models()
 
     # ── Ensure all base models are trained ──
@@ -146,7 +153,7 @@ if __name__ == '__main__':
     # ── Individual baselines ──
     all_results = {}
     for name, m in trained.items():
-        metrics, _ = evaluate(m, X_va, y_va, le, name.replace('_',' '))
+        metrics, _ = evaluate(m, X_va, ans_va, le, name.replace('_',' '))
         all_results[name.replace('_',' ')] = metrics
 
     # ── 1. Voting — Hard ──
@@ -161,7 +168,7 @@ if __name__ == '__main__':
         voting_hard.fit(X_tr, y_tr)
         joblib.dump(voting_hard, ckpt_vh)
         print("done.")
-    m, _ = evaluate(voting_hard, X_va, y_va, le, "Voting Hard")
+    m, _ = evaluate(voting_hard, X_va, ans_va, le, "Voting Hard")
     all_results["Voting Hard"] = m
 
     # ── 2. Voting — Soft ──
@@ -176,7 +183,7 @@ if __name__ == '__main__':
         voting_soft.fit(X_tr, y_tr)
         joblib.dump(voting_soft, ckpt_vs)
         print("done.")
-    m, _ = evaluate(voting_soft, X_va, y_va, le, "Voting Soft")
+    m, _ = evaluate(voting_soft, X_va, ans_va, le, "Voting Soft")
     all_results["Voting Soft"] = m
 
     # ── 3. Stacking ──

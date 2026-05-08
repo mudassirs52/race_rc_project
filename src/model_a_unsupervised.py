@@ -49,8 +49,9 @@ def load_data():
     X_tr = load_X('train'); X_va = load_X('val'); X_te = load_X('test')
     y_tr = np.load(os.path.join(DATA_DIR, 'y_train.npy'))
     y_va = np.load(os.path.join(DATA_DIR, 'y_val.npy'))
+    ans_va = np.load(os.path.join(DATA_DIR, 'ans_val.npy'))
     le   = joblib.load(os.path.join(DATA_DIR, 'label_encoder.pkl'))
-    return X_tr, y_tr, X_va, y_va, le
+    return X_tr, y_tr, X_va, y_va, ans_va, le
 
 
 # ─────────────────────────────────────────────
@@ -90,10 +91,32 @@ def map_clusters_to_labels(cluster_ids, y_true, n_clusters):
     return np.array([mapping[c] for c in cluster_ids])
 
 
+def evaluate_group(y_pred_options, ans_va, name, le, y_va, val_clusters=None):
+    # Group options by 4
+    y_pred_options = y_pred_options.reshape(-1, 4)
+    # Pick the first option that was predicted as 1
+    y_pred_ans = np.argmax(y_pred_options, axis=1)
+
+    acc = accuracy_score(ans_va, y_pred_ans)
+    f1  = f1_score(ans_va, y_pred_ans, average='macro', zero_division=0)
+    
+    ari = 0
+    if val_clusters is not None:
+        ari = adjusted_rand_score(y_va, val_clusters)
+
+    print(f"  Accuracy   : {acc:.4f}")
+    print(f"  Macro F1   : {f1:.4f}")
+    if ari: print(f"  ARI        : {ari:.4f}")
+    print(classification_report(ans_va, y_pred_ans, target_names=le.classes_, zero_division=0))
+
+    _plot_cm(ans_va, y_pred_ans, le, name)
+    return {"accuracy": round(acc,4), "macro_f1": round(f1,4), "ari": round(ari,4)}, y_pred_ans
+
+
 # ─────────────────────────────────────────────
 # 1. K-MEANS CLUSTERING
 # ─────────────────────────────────────────────
-def run_kmeans(X_tr_d, y_tr, X_va_d, y_va, le, n_clusters=4):
+def run_kmeans(X_tr_d, y_tr, X_va_d, y_va, ans_va, le, n_clusters=4):
     print("\n── K-Means Clustering ──")
     ckpt = os.path.join(CKPT_DIR, 'kmeans.pkl')
 
@@ -106,35 +129,16 @@ def run_kmeans(X_tr_d, y_tr, X_va_d, y_va, le, n_clusters=4):
         km.fit(X_tr_d)
         joblib.dump(km, ckpt)
 
-    # Map clusters → labels using training data
-    train_clusters = km.predict(X_tr_d)
     val_clusters   = km.predict(X_va_d)
-    y_pred = map_clusters_to_labels(val_clusters, y_tr[:len(X_va_d)], n_clusters)
-
-    acc = accuracy_score(y_va, y_pred)
-    f1  = f1_score(y_va, y_pred, average='macro', zero_division=0)
-    ari = adjusted_rand_score(y_va, val_clusters)
-
-    # Silhouette on a subsample
-    sub = min(2000, len(X_va_d))
-    sil = silhouette_score(X_va_d[:sub], val_clusters[:sub], sample_size=500)
-
-    print(f"  Accuracy   : {acc:.4f}")
-    print(f"  Macro F1   : {f1:.4f}")
-    print(f"  ARI        : {ari:.4f}")
-    print(f"  Silhouette : {sil:.4f}")
-    print(f"\n  Classification Report:")
-    print(classification_report(y_va, y_pred, target_names=le.classes_, zero_division=0))
-
-    _plot_cm(y_va, y_pred, le, "K-Means")
-    return {"accuracy": round(acc,4), "macro_f1": round(f1,4),
-            "ari": round(ari,4), "silhouette": round(sil,4)}, y_pred
+    y_pred_opt = map_clusters_to_labels(val_clusters, y_va, n_clusters)
+    m, y_pred = evaluate_group(y_pred_opt, ans_va, "K-Means", le, y_va, val_clusters)
+    return m, y_pred
 
 
 # ─────────────────────────────────────────────
 # 2. GAUSSIAN MIXTURE MODEL (EM)
 # ─────────────────────────────────────────────
-def run_gmm(X_tr_d, y_tr, X_va_d, y_va, le, n_components=4):
+def run_gmm(X_tr_d, y_tr, X_va_d, y_va, ans_va, le, n_components=4):
     print("\n── Gaussian Mixture Model (EM) ──")
     ckpt = os.path.join(CKPT_DIR, 'gmm.pkl')
 
@@ -148,30 +152,16 @@ def run_gmm(X_tr_d, y_tr, X_va_d, y_va, le, n_components=4):
         joblib.dump(gmm, ckpt)
 
     val_clusters = gmm.predict(X_va_d)
-    y_pred = map_clusters_to_labels(val_clusters, y_tr[:len(X_va_d)], n_components)
-
-    acc = accuracy_score(y_va, y_pred)
-    f1  = f1_score(y_va, y_pred, average='macro', zero_division=0)
-    ari = adjusted_rand_score(y_va, val_clusters)
-
-    print(f"  Accuracy   : {acc:.4f}")
-    print(f"  Macro F1   : {f1:.4f}")
-    print(f"  ARI        : {ari:.4f}")
-    print(classification_report(y_va, y_pred, target_names=le.classes_, zero_division=0))
-
-    _plot_cm(y_va, y_pred, le, "GMM-EM")
-    return {"accuracy": round(acc,4), "macro_f1": round(f1,4), "ari": round(ari,4)}, y_pred
+    y_pred_opt = map_clusters_to_labels(val_clusters, y_va, n_components)
+    m, y_pred = evaluate_group(y_pred_opt, ans_va, "GMM-EM", le, y_va, val_clusters)
+    return m, y_pred
 
 
 # ─────────────────────────────────────────────
 # 3. LABEL SPREADING (Semi-Supervised)
 # ─────────────────────────────────────────────
-def run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, le,
+def run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, ans_va, le,
                          labeled_fraction=0.10):
-    """
-    Use only `labeled_fraction` of training labels.
-    Rest are treated as unlabeled (-1).
-    """
     print(f"\n── Label Spreading (labeled={labeled_fraction*100:.0f}%) ──")
     ckpt = os.path.join(CKPT_DIR, f'label_spreading_{int(labeled_fraction*100)}.pkl')
 
@@ -185,7 +175,6 @@ def run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, le,
         labeled_idx = np.random.RandomState(42).choice(n, n_labeled, replace=False)
         y_semi[labeled_idx] = y_tr[labeled_idx]
 
-        # LabelSpreading needs dense input
         print(f"  Labeled: {n_labeled}/{n} samples. Fitting…", end=' ', flush=True)
         ls = LabelSpreading(kernel='knn', n_neighbors=7, alpha=0.2,
                              max_iter=100, n_jobs=-1)
@@ -193,27 +182,17 @@ def run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, le,
         print("done.")
         joblib.dump(ls, ckpt)
 
-    y_pred = ls.predict(X_va_d)
-    acc = accuracy_score(y_va, y_pred)
-    f1  = f1_score(y_va, y_pred, average='macro', zero_division=0)
-
-    print(f"  Accuracy : {acc:.4f}")
-    print(f"  Macro F1 : {f1:.4f}")
-    print(classification_report(y_va, y_pred, target_names=le.classes_, zero_division=0))
-
-    _plot_cm(y_va, y_pred, le, f"Label Spreading ({int(labeled_fraction*100)}pct)")
-    return {"accuracy": round(acc,4), "macro_f1": round(f1,4),
-            "labeled_pct": labeled_fraction}, y_pred
+    y_pred_opt = ls.predict_proba(X_va_d)[:, 1]
+    m, y_pred = evaluate_group(y_pred_opt, ans_va, f"Label Spreading ({int(labeled_fraction*100)}pct)", le, y_va)
+    m["labeled_pct"] = labeled_fraction
+    return m, y_pred
 
 
 # ─────────────────────────────────────────────
 # 4. SELF-TRAINING (Semi-Supervised)
 # ─────────────────────────────────────────────
-def run_self_training(X_tr, y_tr, X_va, y_va, le,
+def run_self_training(X_tr, y_tr, X_va, y_va, ans_va, le,
                        labeled_fraction=0.10):
-    """
-    Self-Training wraps a base classifier. Works with sparse matrices.
-    """
     print(f"\n── Self-Training (labeled={labeled_fraction*100:.0f}%) ──")
     ckpt = os.path.join(CKPT_DIR, f'self_training_{int(labeled_fraction*100)}.pkl')
 
@@ -228,24 +207,16 @@ def run_self_training(X_tr, y_tr, X_va, y_va, le,
         y_semi[labeled_idx] = y_tr[labeled_idx]
 
         base = LogisticRegression(max_iter=1000, C=1.0, class_weight='balanced',
-                                   solver='lbfgs', multi_class='multinomial',
-                                   random_state=42, n_jobs=-1)
+                                   solver='lbfgs', random_state=42, n_jobs=-1)
         clf = SelfTrainingClassifier(base, threshold=0.85, max_iter=10, verbose=True)
         print(f"  Fitting Self-Training ({n_labeled} labeled)…")
         clf.fit(X_tr, y_semi)
         joblib.dump(clf, ckpt)
 
-    y_pred = clf.predict(X_va)
-    acc = accuracy_score(y_va, y_pred)
-    f1  = f1_score(y_va, y_pred, average='macro', zero_division=0)
-
-    print(f"  Accuracy : {acc:.4f}")
-    print(f"  Macro F1 : {f1:.4f}")
-    print(classification_report(y_va, y_pred, target_names=le.classes_, zero_division=0))
-
-    _plot_cm(y_va, y_pred, le, f"Self-Training ({int(labeled_fraction*100)}pct)")
-    return {"accuracy": round(acc,4), "macro_f1": round(f1,4),
-            "labeled_pct": labeled_fraction}, y_pred
+    y_pred_opt = clf.predict_proba(X_va)[:, 1]
+    m, y_pred = evaluate_group(y_pred_opt, ans_va, f"Self-Training ({int(labeled_fraction*100)}pct)", le, y_va)
+    m["labeled_pct"] = labeled_fraction
+    return m, y_pred
 
 
 # ─────────────────────────────────────────────
@@ -301,7 +272,7 @@ if __name__ == '__main__':
     print("="*60)
 
     print("\nLoading data…")
-    X_tr, y_tr, X_va, y_va, le = load_data()
+    X_tr, y_tr, X_va, y_va, ans_va, le = load_data()
 
     print("\nReducing dimensions (TruncatedSVD/LSA)…")
     X_tr_d, X_va_d, svd = reduce_dimensions(X_tr, X_va, n_components=100)
@@ -309,27 +280,27 @@ if __name__ == '__main__':
     all_results = {}
 
     # 1. K-Means
-    m, _ = run_kmeans(X_tr_d, y_tr, X_va_d, y_va, le)
+    m, _ = run_kmeans(X_tr_d, y_tr, X_va_d, y_va, ans_va, le)
     all_results["K-Means"] = m
 
     # 2. GMM/EM
-    m, _ = run_gmm(X_tr_d, y_tr, X_va_d, y_va, le)
+    m, _ = run_gmm(X_tr_d, y_tr, X_va_d, y_va, ans_va, le)
     all_results["GMM-EM"] = m
 
     # 3. Label Spreading — 10% labeled
-    m, _ = run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, le, labeled_fraction=0.10)
+    m, _ = run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, ans_va, le, labeled_fraction=0.10)
     all_results["LabelSpreading (10%)"] = m
 
     # 4. Label Spreading — 30% labeled
-    m, _ = run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, le, labeled_fraction=0.30)
+    m, _ = run_label_spreading(X_tr_d, y_tr, X_va_d, y_va, ans_va, le, labeled_fraction=0.30)
     all_results["LabelSpreading (30%)"] = m
 
     # 5. Self-Training — 10% labeled
-    m, _ = run_self_training(X_tr, y_tr, X_va, y_va, le, labeled_fraction=0.10)
+    m, _ = run_self_training(X_tr, y_tr, X_va, y_va, ans_va, le, labeled_fraction=0.10)
     all_results["SelfTraining (10%)"] = m
 
     # 6. Self-Training — 30% labeled
-    m, _ = run_self_training(X_tr, y_tr, X_va, y_va, le, labeled_fraction=0.30)
+    m, _ = run_self_training(X_tr, y_tr, X_va, y_va, ans_va, le, labeled_fraction=0.30)
     all_results["SelfTraining (30%)"] = m
 
     # Load supervised baseline if available
@@ -337,8 +308,10 @@ if __name__ == '__main__':
     sup_ckpt = os.path.join(CKPT_DIR, 'Logistic_Regression.pkl')
     if os.path.exists(sup_ckpt):
         sup_model = joblib.load(sup_ckpt)
-        sup_pred  = sup_model.predict(X_va)
-        sup_acc   = accuracy_score(y_va, sup_pred)
+        probs = sup_model.predict_proba(X_va)[:, 1]
+        probs = probs.reshape(-1, 4)
+        sup_pred = np.argmax(probs, axis=1)
+        sup_acc   = accuracy_score(ans_va, sup_pred)
         print(f"\nSupervised LR baseline (val): {sup_acc:.4f}")
 
     plot_unsupervised_comparison(all_results, sup_acc)

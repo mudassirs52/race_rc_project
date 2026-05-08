@@ -46,7 +46,7 @@ def load_model_a_artifacts(data_dir='../data/processed',
                else np.load(os.path.join(data_dir, f'X_{tag}.npy'))
 
     X_test = load_X('test')
-    y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
+    ans_test = np.load(os.path.join(data_dir, 'ans_test.npy'))
     le     = joblib.load(os.path.join(data_dir, 'label_encoder.pkl'))
 
     models = {}
@@ -55,22 +55,29 @@ def load_model_a_artifacts(data_dir='../data/processed',
             if fname.endswith('.pkl'):
                 name = fname.replace('.pkl', '').replace('_', ' ').title()
                 models[name] = joblib.load(os.path.join(model_dir, fname))
-    return X_test, y_test, le, models
+    return X_test, ans_test, le, models
 
 
-def evaluate_model_a(X_test, y_test, le, models,
+def evaluate_model_a(X_test, ans_test, le, models,
                       out_dir='../models/model_a'):
     """Evaluate all Model A checkpoints on test set."""
     os.makedirs(out_dir, exist_ok=True)
     all_results = {}
 
     for name, model in models.items():
-        y_pred = model.predict(X_test)
-        acc  = accuracy_score(y_test, y_pred)
-        f1   = f1_score(y_test, y_pred, average='macro', zero_division=0)
-        prec = precision_score(y_test, y_pred, average='macro', zero_division=0)
-        rec  = recall_score(y_test, y_pred, average='macro', zero_division=0)
-        em   = float(np.mean(y_test == y_pred))
+        if hasattr(model, 'predict_proba'):
+            probs = model.predict_proba(X_test)[:, 1]
+        else:
+            probs = model.decision_function(X_test)
+        
+        probs = probs.reshape(-1, 4)
+        y_pred = np.argmax(probs, axis=1)
+
+        acc  = accuracy_score(ans_test, y_pred)
+        f1   = f1_score(ans_test, y_pred, average='macro', zero_division=0)
+        prec = precision_score(ans_test, y_pred, average='macro', zero_division=0)
+        rec  = recall_score(ans_test, y_pred, average='macro', zero_division=0)
+        em   = float(np.mean(ans_test == y_pred))
 
         print(f"\n{'─'*60}")
         print(f"  {name}  [TEST SET]")
@@ -81,14 +88,14 @@ def evaluate_model_a(X_test, y_test, le, models,
         print(f"  Recall      : {rec:.4f}")
         print(f"  Exact Match : {em:.4f}")
         print(f"\n  Classification Report:")
-        print(classification_report(y_test, y_pred,
+        print(classification_report(ans_test, y_pred,
                                      target_names=le.classes_,
                                      zero_division=0))
 
         # Confusion matrix
         cm_dir = os.path.join(out_dir, 'confusion_matrices')
         os.makedirs(cm_dir, exist_ok=True)
-        cm = confusion_matrix(y_test, y_pred)
+        cm = confusion_matrix(ans_test, y_pred)
         plt.figure(figsize=(7, 6))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                     xticklabels=le.classes_, yticklabels=le.classes_)
@@ -236,9 +243,9 @@ if __name__ == '__main__':
     # ── Model A ──
     print("\n[1/2] Evaluating Model A on test set …")
     try:
-        X_test, y_test, le, models = load_model_a_artifacts()
+        X_test, ans_test, le, models = load_model_a_artifacts()
         if models:
-            evaluate_model_a(X_test, y_test, le, models)
+            evaluate_model_a(X_test, ans_test, le, models)
         else:
             print("  No Model A checkpoints found. Run model_a_train.py first.")
     except FileNotFoundError as e:

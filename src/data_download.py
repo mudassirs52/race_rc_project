@@ -15,15 +15,14 @@ def download_race():
         def to_csv(split, fname):
             rows = []
             for item in ds[split]:
-                for q_idx, (q, opts, ans) in enumerate(
-                    zip(item['question'], item['options'], item['answer'])):
-                    rows.append({
-                        'article': item['article'],
-                        'question': q,
-                        'A': opts[0], 'B': opts[1],
-                        'C': opts[2], 'D': opts[3],
-                        'answer': ans,
-                    })
+                opts = item['options']
+                rows.append({
+                    'article': item['article'],
+                    'question': item['question'],
+                    'A': opts[0], 'B': opts[1],
+                    'C': opts[2], 'D': opts[3],
+                    'answer': item['answer'],
+                })
             import pandas as pd
             pd.DataFrame(rows).to_csv(fname, index=False)
             print(f"  Saved {len(rows)} rows → {fname}")

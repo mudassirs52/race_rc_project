@@ -167,17 +167,22 @@ def encode_labels(df, le=None, col='answer'):
 # ─────────────────────────────────────────────
 # 7. SAVE / LOAD ARTEFACTS
 # ─────────────────────────────────────────────
-def save_processed(X_train, y_train,
-                   X_val,   y_val,
-                   X_test,  y_test,
+def save_processed(X_train, y_train, ans_train,
+                   X_val,   y_val,   ans_val,
+                   X_test,  y_test,  ans_test,
                    tfidf_ctx, tfidf_opt, vocab, le,
                    out_dir='../data/processed'):
     os.makedirs(out_dir, exist_ok=True)
 
-    # Labels (always dense)
+    # Labels (binary option-level)
     np.save(os.path.join(out_dir, 'y_train.npy'), y_train)
     np.save(os.path.join(out_dir, 'y_val.npy'),   y_val)
     np.save(os.path.join(out_dir, 'y_test.npy'),  y_test)
+
+    # True answers (for question-level evaluation)
+    np.save(os.path.join(out_dir, 'ans_train.npy'), ans_train)
+    np.save(os.path.join(out_dir, 'ans_val.npy'),   ans_val)
+    np.save(os.path.join(out_dir, 'ans_test.npy'),  ans_test)
 
     # Features — handle sparse vs dense
     for tag, X in [('train', X_train), ('val', X_val), ('test', X_test)]:
@@ -210,6 +215,7 @@ def load_processed(out_dir='../data/processed'):
         else:
             arrays[f'X_{tag}'] = np.load(npy_path)
         arrays[f'y_{tag}'] = np.load(os.path.join(out_dir, f'y_{tag}.npy'))
+        arrays[f'ans_{tag}'] = np.load(os.path.join(out_dir, f'ans_{tag}.npy'))
 
     tfidf_ctx = joblib.load(os.path.join(out_dir, 'tfidf_ctx.pkl'))
     tfidf_opt = joblib.load(os.path.join(out_dir, 'tfidf_opt.pkl'))
@@ -241,15 +247,22 @@ if __name__ == '__main__':
           f"Val: {X_val.shape} | Test: {X_test.shape}")
 
     print("\nEncoding labels …")
-    y_train, le = encode_labels(train_opt, col='answer')
-    y_val,   _  = encode_labels(val_opt,   le, col='answer')
-    y_test,  _  = encode_labels(test_opt,  le, col='answer')
+    y_train = train_opt['is_correct'].values.astype(np.int32)
+    y_val   = val_opt['is_correct'].values.astype(np.int32)
+    y_test  = test_opt['is_correct'].values.astype(np.int32)
+
+    le = LabelEncoder()
+    ans_train = le.fit_transform(train_opt['answer'].values[::4])
+    ans_val   = le.transform(val_opt['answer'].values[::4])
+    ans_test  = le.transform(test_opt['answer'].values[::4])
 
     print(f"Classes: {le.classes_}")
 
     print("\nSaving artefacts …")
     save_processed(
-        X_train, y_train, X_val, y_val, X_test, y_test,
+        X_train, y_train, ans_train,
+        X_val,   y_val,   ans_val,
+        X_test,  y_test,  ans_test,
         tfidf_ctx, tfidf_opt, [], le
     )
     print("\n✅ Preprocessing complete!")

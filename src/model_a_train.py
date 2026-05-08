@@ -60,19 +60,20 @@ def load_processed(out_dir='../data/processed'):
     X_val   = load_X('val')
     y_train = np.load(os.path.join(out_dir, 'y_train.npy'))
     y_val   = np.load(os.path.join(out_dir, 'y_val.npy'))
+    ans_train = np.load(os.path.join(out_dir, 'ans_train.npy'))
+    ans_val   = np.load(os.path.join(out_dir, 'ans_val.npy'))
     le      = joblib.load(os.path.join(out_dir, 'label_encoder.pkl'))
-    return X_train, y_train, X_val, y_val, le
+    return X_train, y_train, ans_train, X_val, y_val, ans_val, le
 
 
 # ─────────────────────────────────────────────
-# 2. MODEL DEFINITIONS
+# 2. MODEL DEFINITIONS (Binary Classifiers)
 # ─────────────────────────────────────────────
 def get_models():
     """Return dict of {name: model} to evaluate."""
     return {
         "Logistic Regression": LogisticRegression(
             max_iter=2000, C=1.0, solver='lbfgs',
-            multi_class='multinomial',
             class_weight='balanced',
             random_state=42, n_jobs=-1
         ),
@@ -121,16 +122,25 @@ def train_model(name, model, X_train, y_train, checkpoint_dir=CHECKPOINT_DIR):
 
 
 # ─────────────────────────────────────────────
-# 5. EVALUATE ONE MODEL
+# 5. EVALUATE ONE MODEL (Option-Level Grouping)
 # ─────────────────────────────────────────────
-def evaluate_model(model, X_val, y_val, name, le):
+def evaluate_model(model, X_val, ans_val, name, le):
     """Return metrics dict and predictions."""
-    y_pred = model.predict(X_val)
-    acc  = accuracy_score(y_val, y_pred)
-    f1   = f1_score(y_val, y_pred, average='macro', zero_division=0)
-    prec = precision_score(y_val, y_pred, average='macro', zero_division=0)
-    rec  = recall_score(y_val, y_pred, average='macro', zero_division=0)
-    em   = exact_match(y_val, y_pred)
+    if hasattr(model, 'predict_proba'):
+        probs = model.predict_proba(X_val)[:, 1]
+    else:
+        probs = model.decision_function(X_val)
+        
+    # Group probabilities by 4 (options A, B, C, D)
+    probs = probs.reshape(-1, 4)
+    # The predicted answer is the option with the highest probability
+    y_pred_ans = np.argmax(probs, axis=1)
+    
+    acc  = accuracy_score(ans_val, y_pred_ans)
+    f1   = f1_score(ans_val, y_pred_ans, average='macro', zero_division=0)
+    prec = precision_score(ans_val, y_pred_ans, average='macro', zero_division=0)
+    rec  = recall_score(ans_val, y_pred_ans, average='macro', zero_division=0)
+    em   = exact_match(ans_val, y_pred_ans)
 
     print(f"\n{'─'*55}")
     print(f"  {name}")
@@ -141,7 +151,7 @@ def evaluate_model(model, X_val, y_val, name, le):
     print(f"  Recall    : {rec:.4f}")
     print(f"  Exact Match: {em:.4f}")
     print(f"\n  Classification Report:")
-    print(classification_report(y_val, y_pred,
+    print(classification_report(ans_val, y_pred_ans,
                                  target_names=le.classes_,
                                  zero_division=0))
 
@@ -151,16 +161,16 @@ def evaluate_model(model, X_val, y_val, name, le):
         "precision":round(prec, 4),
         "recall":   round(rec,  4),
         "exact_match": round(em, 4),
-    }, y_pred
+    }, y_pred_ans
 
 
 # ─────────────────────────────────────────────
 # 6. PLOT CONFUSION MATRIX
 # ─────────────────────────────────────────────
-def plot_confusion_matrix(y_val, y_pred, name, le, cm_dir=CM_DIR):
+def plot_confusion_matrix(ans_val, y_pred_ans, name, le, cm_dir=CM_DIR):
     os.makedirs(cm_dir, exist_ok=True)
     safe_name = name.replace(' ', '_')
-    cm = confusion_matrix(y_val, y_pred)
+    cm = confusion_matrix(ans_val, y_pred_ans)
     plt.figure(figsize=(7, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                 xticklabels=le.classes_,
@@ -216,19 +226,18 @@ if __name__ == '__main__':
     print("=" * 60)
 
     print("\nLoading processed data …")
-    X_train, y_train, X_val, y_val, le = load_processed()
+    X_train, y_train, ans_train, X_val, y_val, ans_val, le = load_processed()
     print(f"  Train: {X_train.shape} | Val: {X_val.shape}")
-    print(f"  Label distribution (train): "
-          f"{dict(zip(le.classes_, np.bincount(y_train)))}")
+    print(f"  Label distribution (binary): {np.bincount(y_train)}")
 
     all_results = {}
     models = get_models()
 
     for name, model in models.items():
         trained = train_model(name, model, X_train, y_train)
-        metrics, y_pred = evaluate_model(trained, X_val, y_val, name, le)
+        metrics, y_pred_ans = evaluate_model(trained, X_val, ans_val, name, le)
         all_results[name] = metrics
-        plot_confusion_matrix(y_val, y_pred, name, le)
+        plot_confusion_matrix(ans_val, y_pred_ans, name, le)
 
     print_comparison(all_results)
     save_results(all_results)

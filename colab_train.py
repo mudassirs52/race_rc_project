@@ -30,10 +30,10 @@ def download_race(out_dir='data/raw'):
     def save_split(split, fname):
         rows = []
         for item in ds[split]:
-            for q, opts, ans in zip(item['question'], item['options'], item['answer']):
-                rows.append({'article': item['article'], 'question': q,
-                             'A': opts[0], 'B': opts[1], 'C': opts[2], 'D': opts[3],
-                             'answer': ans})
+            opts = item['options']
+            rows.append({'article': item['article'], 'question': item['question'],
+                         'A': opts[0], 'B': opts[1], 'C': opts[2], 'D': opts[3],
+                         'answer': item['answer']})
         pd.DataFrame(rows).to_csv(fname, index=False)
         print(f"  {fname}: {len(rows)} rows")
     save_split('train', f'{out_dir}/train.csv')
