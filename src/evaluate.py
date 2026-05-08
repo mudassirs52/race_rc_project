@@ -184,7 +184,7 @@ def evaluate_model_b_on_dataset(df, cv, method='tfidf', n_samples=200,
     Run Model B on a sample of the RACE dataset and report BLEU/ROUGE/METEOR.
     df must have columns: article, question, A, B, C, D, answer
     """
-    from src.model_b_distractor_hint import (
+    from model_b_distractor_hint import (
         generate_distractors_and_hints,
         evaluate_distractors,
         evaluate_hints_precision,
@@ -257,7 +257,7 @@ if __name__ == '__main__':
     print("\n[2/2] Evaluating Model B …")
     try:
         import pandas as pd
-        from src.model_b_distractor_hint import CorpusVocab
+        from model_b_distractor_hint import CorpusVocab
         df_test = pd.read_csv('../data/raw/test.csv')
         # Build vocab from test corpus
         cv = CorpusVocab(max_features=3000).fit(
