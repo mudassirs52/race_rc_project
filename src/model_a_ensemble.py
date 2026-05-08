@@ -200,7 +200,7 @@ if __name__ == '__main__':
         stacking.fit(X_tr, y_tr)
         joblib.dump(stacking, ckpt_st)
         print("done.")
-    m, _ = evaluate(stacking, X_va, y_va, le, "Stacking")
+    m, _ = evaluate(stacking, X_va, ans_va, le, "Stacking")
     all_results["Stacking"] = m
 
     # ── Comparison ──

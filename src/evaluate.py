@@ -51,8 +51,10 @@ def load_model_a_artifacts(data_dir='../data/processed',
 
     models = {}
     if os.path.isdir(model_dir):
+        valid = ['Logistic_Regression.pkl', 'Random_Forest.pkl', 'Linear_SVM.pkl', 
+                 'Complement_NB.pkl', 'Voting_Hard.pkl', 'Voting_Soft.pkl', 'Stacking.pkl']
         for fname in os.listdir(model_dir):
-            if fname.endswith('.pkl'):
+            if fname in valid:
                 name = fname.replace('.pkl', '').replace('_', ' ').title()
                 models[name] = joblib.load(os.path.join(model_dir, fname))
     return X_test, ans_test, le, models
